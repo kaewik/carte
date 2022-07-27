@@ -1,0 +1,12 @@
+openapi: 3.0.0
+info:
+    version: 1.0.0
+    title: Carte API
+    description: An API to get suggestions on the weekly meals
+paths:
+    /health:
+        get:
+            description: For health check purposes
+            responses:
+                '200':
+                    description: Service is healthy

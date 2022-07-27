@@ -1,0 +1,7 @@
+.openapi-generator-ignore
+README.md
+Setup.hs
+carte.cabal
+lib/Carte/API.hs
+lib/Carte/Types.hs
+stack.yaml
