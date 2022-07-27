@@ -2,7 +2,9 @@ name:    carte-rest
 version: "0.0.0"
 
 dependencies:
+- aeson
 - base
+- uuid
 - yesod-core
 
 # The library contains all of our application code. The executable

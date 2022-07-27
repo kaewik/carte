@@ -9,5 +9,6 @@ import Foundation
 import Yesod.Core
 
 import Home
+import Auth
 
 mkYesodDispatch "App" resourcesApp
