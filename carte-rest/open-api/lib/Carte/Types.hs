@@ -4,6 +4,7 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 
 module Carte.Types (
+  GetAuth200Response (..),
   ) where
 
 import Data.Data (Data)
@@ -22,6 +23,21 @@ import qualified Data.Text as T
 import qualified Data.Map as Map
 import GHC.Generics (Generic)
 import Data.Function ((&))
+
+
+-- | 
+data GetAuth200Response = GetAuth200Response
+  { getAuth200ResponseJwt :: Maybe Text -- ^ a JWT in standard notation, i.e. \"<base64 encoded header>.<base64 encoded payload>.<base64 encoded signature>\"
+  } deriving (Show, Eq, Generic, Data)
+
+instance FromJSON GetAuth200Response where
+  parseJSON = genericParseJSON (removeFieldLabelPrefix True "getAuth200Response")
+instance ToJSON GetAuth200Response where
+  toJSON = genericToJSON (removeFieldLabelPrefix False "getAuth200Response")
+instance ToSchema GetAuth200Response where
+  declareNamedSchema = Swagger.genericDeclareNamedSchema
+    $ Swagger.fromAesonOptions
+    $ removeFieldLabelPrefix False "getAuth200Response"
 
 
 uncapitalize :: String -> String

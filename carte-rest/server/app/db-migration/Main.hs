@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Carte.Entities
+import Entities
 import Database.Persist.Sqlite
 
 main :: IO ()

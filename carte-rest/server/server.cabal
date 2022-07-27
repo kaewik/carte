@@ -1,0 +1,46 @@
+name:                server
+version:             0.1.0.0
+synopsis:            Auto-generated API bindings for carte
+description:         Please see README.md
+homepage:            https://openapi-generator.tech
+author:              Author Name Here
+maintainer:          author.name@email.com
+copyright:           YEAR - AUTHOR
+category:            Web
+build-type:          Simple
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      lib
+  exposed-modules:     Entities
+  ghc-options:         -Wall
+  default-language:   Haskell2010
+  build-depends:      base
+                    , carte
+                    , mtl
+                    , persistent
+                    , persistent-sqlite
+                    , servant-server
+
+executable carte-server
+  hs-source-dirs:     app/server
+  main-is:            Main.hs
+  ghc-options:        -Wall
+  default-language:   Haskell2010
+  build-depends:      base
+                    , wai
+                    , wai-extra
+                    , carte
+                    , mtl
+                    , servant-server
+
+executable carte-db-migration
+  hs-source-dirs:     app/db-migration
+  main-is:            Main.hs
+  ghc-options:        -Wall
+  default-language:   Haskell2010
+  build-depends:      base
+                    , carte
+                    , persistent
+                    , persistent-sqlite
+                    , server

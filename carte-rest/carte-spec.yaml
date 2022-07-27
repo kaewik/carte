@@ -1,12 +1,62 @@
 openapi: 3.0.0
 info:
-    version: 1.0.0
-    title: Carte API
-    description: An API to get suggestions on the weekly meals
+  version: 1.0.0
+  title: Carte API
+  description: an API to get suggestions on the weekly meals.
+  contact:
+    name: lugggas
+    email: 32685131+lugggas@users.noreply.github.com
+    url: https://github.com/lugggas/carte
+components:
+  securitySchemes:
+#    basicAuth:
+#      type: http
+#      scheme: basic
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    UnauthorizedError:
+      description: authentication information is missing or invalid
+      headers:
+        WWW_Authenticate:
+          schema:
+            type: string
+servers:
+  - url: https://carte.api.com/v1
 paths:
-    /health:
-        get:
-            description: For health check purposes
-            responses:
-                '200':
-                    description: Service is healthy
+  /auth:
+    get:
+      description: check username and password and provide a JSON Web token (JWT) with information about permissions
+      operationId: getAuth
+#      security:
+#        - basicAuth: []
+      parameters:
+        - in: header
+          name: X-Authorization
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: a JWT embedded in a JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jwt:
+                    type: string
+                    description: a JWT in standard notation, i.e. "<base64 encoded header>.<base64 encoded payload>.<base64 encoded signature>"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /health:
+    get:
+      description: health check
+      operationId: getHealth
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: service is healthy

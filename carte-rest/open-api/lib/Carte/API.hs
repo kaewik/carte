@@ -29,6 +29,10 @@ module Carte.API
   , CarteAPI
   -- ** Plain WAI Application
   , serverWaiApplicationCarte
+  -- ** Authentication
+  , CarteAuth(..)
+  , clientAuth
+  , Protected
   ) where
 
 import           Carte.Types
@@ -38,6 +42,7 @@ import           Control.Monad.Except               (ExceptT, runExceptT)
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Reader         (ReaderT (..))
 import           Data.Aeson                         (Value)
+import           Data.ByteString                    (ByteString)
 import           Data.Coerce                        (coerce)
 import           Data.Data                          (Data)
 import           Data.Function                      ((&))
@@ -54,16 +59,19 @@ import           GHC.Generics                       (Generic)
 import           Network.HTTP.Client                (Manager, newManager)
 import           Network.HTTP.Client.TLS            (tlsManagerSettings)
 import           Network.HTTP.Types.Method          (methodOptions)
-import           Network.Wai                        (Middleware)
+import           Network.Wai                        (Middleware, Request, requestHeaders)
 import qualified Network.Wai.Handler.Warp           as Warp
-import           Servant                            (ServerError, serveWithContextT)
+import           Network.Wai.Middleware.HttpAuth    (extractBearerAuth)
+import           Servant                            (ServerError, serveWithContextT, throwError)
 import           Servant.API                        hiding (addHeader)
 import           Servant.API.Verbs                  (StdMethod (..), Verb)
+import           Servant.API.Experimental.Auth      (AuthProtect)
 import           Servant.Client                     (ClientEnv, Scheme (Http), ClientError, client,
                                                      mkClientEnv, parseBaseUrl)
-import           Servant.Client.Core                (baseUrlPort, baseUrlHost)
+import           Servant.Client.Core                (baseUrlPort, baseUrlHost, AuthClientData, AuthenticatedRequest, addHeader, mkAuthenticatedRequest)
 import           Servant.Client.Internal.HttpClient (ClientM (..))
-import           Servant.Server                     (Handler (..), Application, Context (EmptyContext))
+import           Servant.Server                     (Handler (..), Application, Context ((:.), EmptyContext))
+import           Servant.Server.Experimental.Auth   (AuthHandler, AuthServerData, mkAuthHandler)
 import           Servant.Server.StaticFiles         (serveDirectoryFileServer)
 import           Web.FormUrlEncoded
 import           Web.HttpApiData
@@ -123,7 +131,8 @@ formatSeparatedQueryList char = T.intercalate (T.singleton char) . map toQueryPa
 
 -- | Servant type-level API, generated from the OpenAPI spec for Carte.
 type CarteAPI
-    =    "health" :> Verb 'GET 200 '[JSON] NoContent -- 'healthGet' route
+    =    "auth" :> Header "X-Authorization" Text :> Verb 'GET 200 '[JSON] GetAuth200Response -- 'getAuth' route
+    :<|> Protected :> "health" :> Verb 'GET 200 '[JSON] NoContent -- 'getHealth' route
     :<|> Raw
 
 
@@ -143,10 +152,19 @@ newtype CarteClientError = CarteClientError ClientError
 -- The backend can be used both for the client and the server. The client generated from the Carte OpenAPI spec
 -- is a backend that executes actions by sending HTTP requests (see @createCarteClient@). Alternatively, provided
 -- a backend, the API can be served using @runCarteMiddlewareServer@.
-data CarteBackend m = CarteBackend
-  { healthGet :: m NoContent{- ^ For health check purposes -}
+data CarteBackend a m = CarteBackend
+  { getAuth :: Maybe Text -> m GetAuth200Response{- ^ check username and password and provide a JSON Web token (JWT) with information about permissions -}
+  , getHealth :: a -> m NoContent{- ^ health check -}
   }
 
+-- | Authentication settings for Carte.
+-- lookupUser is used to retrieve a user given a header value. The data type can be specified by providing an
+-- type instance for AuthServerData. authError is a function that given a request returns a custom error that
+-- is returned when the header is not found.
+data CarteAuth = CarteAuth
+  { lookupUser :: ByteString -> Handler AuthServer
+  , authError :: Request -> ServerError
+  }
 
 newtype CarteClient a = CarteClient
   { runClient :: ClientEnv -> ExceptT ClientError IO a
@@ -166,10 +184,11 @@ instance Monad CarteClient where
 instance MonadIO CarteClient where
   liftIO io = CarteClient (\_ -> liftIO io)
 
-createCarteClient :: CarteBackend CarteClient
+createCarteClient :: CarteBackend AuthClient CarteClient
 createCarteClient = CarteBackend{..}
   where
-    ((coerce -> healthGet) :<|>
+    ((coerce -> getAuth) :<|>
+     (coerce -> getHealth) :<|>
      _) = client (Proxy :: Proxy CarteAPI)
 
 -- | Run requests in the CarteClient monad.
@@ -202,31 +221,51 @@ requestMiddlewareId a = a
 -- | Run the Carte server at the provided host and port.
 runCarteServer
   :: (MonadIO m, MonadThrow m)
-  => Config -> CarteBackend (ExceptT ServerError IO) -> m ()
-runCarteServer config backend = runCarteMiddlewareServer config requestMiddlewareId backend
+  => Config -> CarteAuth -> CarteBackend AuthServer (ExceptT ServerError IO) -> m ()
+runCarteServer config auth backend = runCarteMiddlewareServer config requestMiddlewareId auth backend
 
 -- | Run the Carte server at the provided host and port.
 runCarteMiddlewareServer
   :: (MonadIO m, MonadThrow m)
-  => Config -> Middleware -> CarteBackend (ExceptT ServerError IO) -> m ()
-runCarteMiddlewareServer Config{..} middleware backend = do
+  => Config -> Middleware -> CarteAuth -> CarteBackend AuthServer (ExceptT ServerError IO) -> m ()
+runCarteMiddlewareServer Config{..} middleware auth backend = do
   url <- parseBaseUrl configUrl
   let warpSettings = Warp.defaultSettings
         & Warp.setPort (baseUrlPort url)
         & Warp.setHost (fromString $ baseUrlHost url)
-  liftIO $ Warp.runSettings warpSettings $ middleware $ serverWaiApplicationCarte backend
+  liftIO $ Warp.runSettings warpSettings $ middleware $ serverWaiApplicationCarte auth backend
 
 -- | Plain "Network.Wai" Application for the Carte server.
 --
 -- Can be used to implement e.g. tests that call the API without a full webserver.
-serverWaiApplicationCarte :: CarteBackend (ExceptT ServerError IO) -> Application
-serverWaiApplicationCarte backend = serveWithContextT (Proxy :: Proxy CarteAPI) context id (serverFromBackend backend)
+serverWaiApplicationCarte :: CarteAuth -> CarteBackend AuthServer (ExceptT ServerError IO) -> Application
+serverWaiApplicationCarte auth backend = serveWithContextT (Proxy :: Proxy CarteAPI) context id (serverFromBackend backend)
   where
-    context = serverContext
+    context = serverContext auth
     serverFromBackend CarteBackend{..} =
-      (coerce healthGet :<|>
+      (coerce getAuth :<|>
+       coerce getHealth :<|>
        serveDirectoryFileServer "static")
 
+-- Authentication is implemented with servants generalized authentication:
+-- https://docs.servant.dev/en/stable/tutorial/Authentication.html#generalized-authentication
 
-serverContext :: Context ('[])
-serverContext = EmptyContext
+authHandler :: CarteAuth -> AuthHandler Request AuthServer
+authHandler CarteAuth{..} = mkAuthHandler handler
+  where
+    handler req = case lookup "Authorization" (requestHeaders req) of
+      Just header -> case extractBearerAuth header of
+        Just key -> lookupUser key
+        Nothing -> throwError (authError req)
+      Nothing -> throwError (authError req)
+
+type Protected = AuthProtect "bearer"
+type AuthServer = AuthServerData Protected
+type AuthClient = AuthenticatedRequest Protected
+type instance AuthClientData Protected = Text
+
+clientAuth :: Text -> AuthClient
+clientAuth key = mkAuthenticatedRequest ("Bearer " <> key) (addHeader "Authorization")
+
+serverContext :: CarteAuth -> Context (AuthHandler Request AuthServer ': '[])
+serverContext auth = authHandler auth :. EmptyContext
