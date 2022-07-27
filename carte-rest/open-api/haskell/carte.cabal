@@ -13,8 +13,9 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      lib
   exposed-modules:     Carte.API
-                     , Carte.Types
+                     , Carte.Entities
                      , Carte.Handlers
+                     , Carte.Types
   ghc-options:         -Wall
   build-depends:       base
                      , aeson
@@ -39,6 +40,8 @@ library
                      , http-types
                      , swagger2
                      , uuid
+                     , persistent
+                     , persistent-sqlite
   default-language:    Haskell2010
 
 executable carte-server
@@ -50,3 +53,13 @@ executable carte-server
                     , carte
                     , wai
                     , wai-extra
+
+executable carte-db-migration
+  hs-source-dirs:     app/db-migration
+  main-is:            Main.hs
+  ghc-options:        -Wall
+  default-language:   Haskell2010
+  build-depends:      base
+                    , carte
+                    , persistent
+                    , persistent-sqlite
