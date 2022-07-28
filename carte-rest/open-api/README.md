@@ -1,4 +1,4 @@
- Auto-Generated OpenAPI Bindings to `Carte`
+# Auto-Generated OpenAPI Bindings to `Carte`
 
 The library in `lib` provides auto-generated-from-OpenAPI bindings to the Carte API.
 

@@ -41,6 +41,16 @@ paths:
             type: string
           required: true
       responses:
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorMessage:
+                    type: string
+                    description: the specific error message
         '200':
           description: a JWT embedded in a JSON
           content:
@@ -51,8 +61,6 @@ paths:
                   jwt:
                     type: string
                     description: a JWT in standard notation, i.e. "<base64 encoded header>.<base64 encoded payload>.<base64 encoded signature>"
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
   /health:
     get:
       description: health check
@@ -62,3 +70,5 @@ paths:
       responses:
         '200':
           description: service is healthy
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'

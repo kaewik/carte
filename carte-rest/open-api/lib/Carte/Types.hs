@@ -5,6 +5,7 @@
 
 module Carte.Types (
   GetAuth200Response (..),
+  GetAuth400Response (..),
   ) where
 
 import Data.Data (Data)
@@ -38,6 +39,21 @@ instance ToSchema GetAuth200Response where
   declareNamedSchema = Swagger.genericDeclareNamedSchema
     $ Swagger.fromAesonOptions
     $ removeFieldLabelPrefix False "getAuth200Response"
+
+
+-- | 
+data GetAuth400Response = GetAuth400Response
+  { getAuth400ResponseErrorMessage :: Maybe Text -- ^ the specific error message
+  } deriving (Show, Eq, Generic, Data)
+
+instance FromJSON GetAuth400Response where
+  parseJSON = genericParseJSON (removeFieldLabelPrefix True "getAuth400Response")
+instance ToJSON GetAuth400Response where
+  toJSON = genericToJSON (removeFieldLabelPrefix False "getAuth400Response")
+instance ToSchema GetAuth400Response where
+  declareNamedSchema = Swagger.genericDeclareNamedSchema
+    $ Swagger.fromAesonOptions
+    $ removeFieldLabelPrefix False "getAuth400Response"
 
 
 uncapitalize :: String -> String
