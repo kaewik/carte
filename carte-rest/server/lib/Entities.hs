@@ -13,7 +13,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Entities (User, migrateAll) where
+module Entities (User (..), migrateAll) where
 
 import Database.Persist.Sqlite
 import Database.Persist.TH

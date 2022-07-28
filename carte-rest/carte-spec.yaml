@@ -9,6 +9,7 @@ info:
     url: https://github.com/lugggas/carte
 components:
   securitySchemes:
+# https://github.com/OpenAPITools/openapi-generator/issues/13031
 #    basicAuth:
 #      type: http
 #      scheme: basic
@@ -30,6 +31,7 @@ paths:
     get:
       description: check username and password and provide a JSON Web token (JWT) with information about permissions
       operationId: getAuth
+# https://github.com/OpenAPITools/openapi-generator/issues/13031
 #      security:
 #        - basicAuth: []
       parameters:
