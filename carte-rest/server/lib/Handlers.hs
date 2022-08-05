@@ -72,10 +72,14 @@ internalServerError = extendServerError err500 "Internal Server Error, see serve
 decodeCredentials :: Text -> ExceptT ServerError IO Text
 decodeCredentials c = withExceptT extendCredentialsParsingError ((except . decodeBase64) c)
 
-extractUsernameAndPassword :: Text -> (Text, Text)
-extractUsernameAndPassword creds = (username, password)
-  where
-    [username, password] = splitOn ":" creds
+extractUsernameAndPassword :: Text -> ExceptT ServerError IO (Text, Text)
+extractUsernameAndPassword creds =
+  let usernameAndPassword = splitOn ":" creds
+   in case usernameAndPassword of
+        [] -> throwError wrongUsernameOrPasswordError
+        [_] -> throwError wrongUsernameOrPasswordError
+        [username, password] -> return (username, password)
+        (_ : __) -> throwError wrongUsernameOrPasswordError
 
 getUser :: Text -> ExceptT ServerError IO User
 getUser username = maybeToExceptT wrongUsernameOrPasswordError (entityVal <$> (MaybeT . runSqlite "test-data.db" $ getBy $ UniqueUsername $ unpack username))
@@ -105,7 +109,7 @@ _getAuth :: Maybe Text -> ExceptT ServerError IO GetAuth200Response
 _getAuth (Just authorizationHeader) = do
   encodedCreds <- extractCredentials authorizationHeader
   creds <- decodeCredentials encodedCreds
-  let (username, password) = extractUsernameAndPassword creds
+  (username, password) <- extractUsernameAndPassword creds
   user <- getUser username
   let hashedPassword = userPassword user
   comparePasswords password (pack hashedPassword)
