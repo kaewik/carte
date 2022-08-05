@@ -10,10 +10,12 @@ import Control.Monad.Except (ExceptT, withExceptT)
 import Control.Monad.Trans (liftIO)
 import Control.Monad.Trans.Except (except)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT), maybeToExceptT)
-import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified Data.ByteString.Lazy as LBS
 import Data.Password.Bcrypt (PasswordCheck (PasswordCheckFail, PasswordCheckSuccess), PasswordHash (PasswordHash), checkPassword, mkPassword)
 import Data.Text (Text, pack, splitOn, unpack)
-import Data.Text.Encoding.Base64 (decodeBase64)
+import Data.Text.Encoding.Base64 (decodeBase64, isBase64)
+import Data.Text.Lazy (fromStrict)
+import Data.Text.Lazy.Encoding (encodeUtf8)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.Persist (Entity (entityVal), getBy)
 import Database.Persist.Sqlite (runSqlite)
@@ -21,6 +23,7 @@ import Entities (Unique (UniqueUsername), User (userEmail, userPassword))
 import Servant (NoContent (NoContent), ServerError, err400, err401, err500, errBody, throwError)
 import Servant.Server.Experimental.Auth (AuthServerData)
 import System.Environment (lookupEnv)
+import Text.Regex.TDFA ((=~~))
 import qualified Web.JWT as JWT (JWTClaimsSet (exp, iat, iss), encodeSigned, hmacSecret, numericDate, stringOrURI)
 
 type instance AuthServerData Protected = Bool
@@ -39,7 +42,7 @@ jwkSecret :: String
 jwkSecret = "JWK_SECRET"
 
 _lookupSecret :: ExceptT ServerError IO String
-_lookupSecret = maybeToExceptT throwInternalServerError (MaybeT $ lookupEnv jwkSecret)
+_lookupSecret = maybeToExceptT internalServerError (MaybeT $ lookupEnv jwkSecret)
 
 mkClaims :: String -> IO JWT.JWTClaimsSet
 mkClaims username = do
@@ -51,27 +54,23 @@ mkClaims username = do
         JWT.exp = JWT.numericDate (currentUtcTime + 3600)
       }
 
-throwServerError :: Show e => ServerError -> String -> Maybe e -> ServerError
-throwServerError serverErr msg (Just e) =
-  serverErr
-    { errBody = LBS.pack (msg <> "Error Message: " <> show e)
-    }
-throwServerError serverErr msg Nothing =
-  serverErr
-    { errBody = LBS.pack msg
-    }
+extendServerError :: ServerError -> LBS.ByteString -> ServerError
+extendServerError serverErr msg = serverErr {errBody = errBody serverErr <> msg}
 
-throwCredentialsParsingError :: Show e => e -> ServerError
-throwCredentialsParsingError e = throwServerError err400 "Couldn't parse credentials from header! Please encode them by base64." (Just e)
+credentialsParsingError :: ServerError
+credentialsParsingError = extendServerError err400 "Couldn't parse credentials from header! Please encode them by base64."
 
-throwWrongUsernameOrPassword :: ServerError
-throwWrongUsernameOrPassword = throwServerError err401 "Wrong username or password!" (Nothing :: Maybe Text)
+extendCredentialsParsingError :: Text -> ServerError
+extendCredentialsParsingError errorMessage = extendServerError credentialsParsingError $ (encodeUtf8 . fromStrict) errorMessage
 
-throwInternalServerError :: ServerError
-throwInternalServerError = throwServerError err500 "Internal Server Error, see server logs." (Nothing :: Maybe Text)
+wrongUsernameOrPasswordError :: ServerError
+wrongUsernameOrPasswordError = extendServerError err401 "Wrong username or password!"
+
+internalServerError :: ServerError
+internalServerError = extendServerError err500 "Internal Server Error, see server logs."
 
 decodeCredentials :: Text -> ExceptT ServerError IO Text
-decodeCredentials c = withExceptT throwCredentialsParsingError ((except . decodeBase64) c)
+decodeCredentials c = withExceptT extendCredentialsParsingError ((except . decodeBase64) c)
 
 extractUsernameAndPassword :: Text -> (Text, Text)
 extractUsernameAndPassword creds = (username, password)
@@ -79,7 +78,7 @@ extractUsernameAndPassword creds = (username, password)
     [username, password] = splitOn ":" creds
 
 getUser :: Text -> ExceptT ServerError IO User
-getUser username = maybeToExceptT throwWrongUsernameOrPassword (entityVal <$> (MaybeT . runSqlite "test-data.db" $ getBy $ UniqueUsername $ unpack username))
+getUser username = maybeToExceptT wrongUsernameOrPasswordError (entityVal <$> (MaybeT . runSqlite "test-data.db" $ getBy $ UniqueUsername $ unpack username))
 
 createJwt :: User -> ExceptT ServerError IO Text
 createJwt user = do
@@ -92,10 +91,19 @@ createJwt user = do
 comparePasswords :: Text -> Text -> ExceptT ServerError IO ()
 comparePasswords plainPassword hashedPassword = case checkPassword (mkPassword plainPassword) (PasswordHash hashedPassword) of
   PasswordCheckSuccess -> return ()
-  PasswordCheckFail -> throwError throwWrongUsernameOrPassword
+  PasswordCheckFail -> throwError wrongUsernameOrPasswordError
+
+extractCredentials :: Text -> ExceptT ServerError IO Text
+extractCredentials header = do
+  _ <- header =~~ ("^Basic .*$" :: Text) :: ExceptT ServerError IO ()
+  let [_, creds] = splitOn " " header
+  if isBase64 creds
+    then return creds
+    else throwError credentialsParsingError
 
 _getAuth :: Maybe Text -> ExceptT ServerError IO GetAuth200Response
-_getAuth (Just encodedCreds) = do
+_getAuth (Just authorizationHeader) = do
+  encodedCreds <- extractCredentials authorizationHeader
   creds <- decodeCredentials encodedCreds
   let (username, password) = extractUsernameAndPassword creds
   user <- getUser username
