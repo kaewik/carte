@@ -14,6 +14,8 @@ library
   hs-source-dirs:     lib
   exposed-modules:    Entities
                     , Handlers
+                    , Handlers.Auth
+  other-modules:      EntityHelpers.User
   ghc-options:        -Wall 
   default-language:   Haskell2010
   build-depends:      base
@@ -27,7 +29,6 @@ library
                     , persistent-sqlite
                     , persistent
                     , persistent-sqlite
-                    , regex-tdfa
                     , servant-server
                     , text
                     , transformers
@@ -43,6 +44,7 @@ executable carte-server
                     , wai-extra
                     , servant-server
                     , server
+                    , transformers
 
 executable carte-db-migration
   hs-source-dirs:     app/db-migration
@@ -69,5 +71,6 @@ test-suite carte-server-test
                     , hspec
                     , servant-server
                     , server
+                    , text
                     , transformers
   other-modules:      AuthSpec
